@@ -1,0 +1,156 @@
+/* CSS стили для приложения */
+
+.main-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 1.5rem 2rem;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 10px;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.main-header .logo-container {
+    flex-shrink: 0;
+}
+
+.main-header .logo-container img {
+    width: 80px;
+    height: 80px;
+    border-radius: 12px;
+    object-fit: cover;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.main-header .title-container {
+    flex: 1;
+    text-align: left;
+}
+
+.main-header h1 {
+    margin: 0;
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.main-header .subtitle {
+    margin: 0.25rem 0 0 0;
+    font-size: 0.95rem;
+    opacity: 0.9;
+    font-weight: 400;
+}
+
+.main-header .tagline {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.85rem;
+    opacity: 0.8;
+    font-style: italic;
+}
+
+.module-card {
+    background: white;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+.module-card:hover {
+    border-color: #667eea;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    transform: translateY(-2px);
+}
+
+.question-block {
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+    position: relative;
+    line-height: 1.6;
+    font-size: 0.95rem;
+}
+
+.question-block.easy {
+    border-color: #4a9d4a;
+    background: #f0f9f0;
+    color: #2d5a2d;
+}
+
+.question-block.medium {
+    border-color: #d4a574;
+    background: #fef9f0;
+    color: #8b5a2b;
+}
+
+.question-block.hard {
+    border-color: #c85a5a;
+    background: #fdf5f5;
+    color: #8b3a3a;
+}
+
+.comment-section {
+    background: #e9ecef;
+    border-radius: 5px;
+    padding: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.metric-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: 15px;
+    font-size: 0.8rem;
+    font-weight: bold;
+    margin: 0.2rem;
+}
+
+.metric-good {
+    background: #e8f5e8;
+    color: #2d5a2d;
+    border: 1px solid #c8e6c8;
+}
+
+.metric-warning {
+    background: #fff8e1;
+    color: #8b6914;
+    border: 1px solid #ffecb3;
+}
+
+.metric-bad {
+    background: #fce4ec;
+    color: #8b3a3a;
+    border: 1px solid #f8bbd9;
+}
+
+/* Стили для текста вопросов */
+.question-text {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: inherit;
+}
+
+.question-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    margin-bottom: 0.75rem;
+    color: inherit;
+}
+
+/* Улучшенная читаемость */
+.question-block p {
+    margin-bottom: 0.5rem;
+    color: inherit;
+}
+
+.question-block strong {
+    color: inherit;
+    font-weight: 600;
+}
