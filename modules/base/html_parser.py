@@ -5,6 +5,7 @@
 
 from bs4 import BeautifulSoup
 import re
+from typing import List, Dict, Any, Tuple
 
 
 def parse_moodle_html(file_content):
@@ -80,12 +81,12 @@ def parse_moodle_html(file_content):
             subquestion_index += 1  # Увеличиваем счетчик только для подвопросов
         else:
             # Основные вопросы (без точки) добавляем для структуры категорий
-            # Они нужны для определения помеченных категорий в графиках
-            # Добавляем их в список с флагом, чтобы они попадали в структуру категорий
             question_data['is_main_question'] = True
             questions.append(question_data)
     
-    print(f"Найдено {len(questions)} вопросов")
+    questions = _deduplicate_questions(questions)
+    unique_count = len([q for q in questions if not q.get('is_main_question', False)])
+    print(f"Найдено вопросов: {unique_count} (уникальных, без дублей)")
     return questions
 
 
@@ -134,6 +135,49 @@ def extract_question_data(cells):
     except Exception as e:
         print(f"Ошибка при извлечении данных: {e}")
         return None
+
+
+def _get_question_signature(question: Dict[str, Any]) -> str:
+    """Подпись вопроса для поиска дубликатов (одинаковые метрики = один вопрос)."""
+    def _norm(v):
+        if v is None: return ''
+        s = str(v).strip().replace(',', '.').replace('%', '')
+        try:
+            return f"{float(s):.2f}"
+        except (ValueError, TypeError):
+            return s.lower()
+    title = (question.get('title', '') or '').strip().lower()
+    return f"{title}|{_norm(question.get('type'))}|{_norm(question.get('attempts'))}|{_norm(question.get('difficulty'))}|{_norm(question.get('std_dev'))}|{_norm(question.get('guess_prob'))}|{_norm(question.get('weight'))}|{_norm(question.get('effective_weight'))}|{_norm(question.get('discrimination'))}|{_norm(question.get('efficiency'))}"
+
+
+def _deduplicate_questions(questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Объединяет дубликаты: один и тот же вопрос (5.1, 6.1) показывается один раз с пометкой дублей.
+    Возвращает список с полем duplicate_ids и display_id для отображения.
+    """
+    subqs = [q for q in questions if not q.get('is_main_question', False)]
+    main_qs = [q for q in questions if q.get('is_main_question', False)]
+    if not subqs:
+        return questions
+    groups = {}
+    for q in subqs:
+        sig = _get_question_signature(q)
+        if sig not in groups:
+            groups[sig] = []
+        groups[sig].append(q)
+    dedup_subqs = []
+    for sig, grp in groups.items():
+        rep = grp[0]
+        ids = [q['id'] for q in grp]
+        rep['duplicate_ids'] = ids[1:] if len(ids) > 1 else []
+        rep['display_id'] = f"{ids[0]}" + (f" ({', '.join(ids[1:])})" if len(ids) > 1 else "")
+        dedup_subqs.append(rep)
+    result = []
+    for m in main_qs:
+        result.append(m)
+    for s in dedup_subqs:
+        result.append(s)
+    return result
 
 
 def is_subquestion(question_id):

@@ -11,7 +11,6 @@ from modules.question_analysis.module import render as render_question_analysis
 from modules.irt_analysis.module import render as render_irt_analysis
 from modules.expert_system.module import render as render_expert_system
 from modules.categorization.module import render as render_categorization
-from modules.settings.module import render as render_settings
 
 
 def load_css():
@@ -102,7 +101,6 @@ def main():
         1: render_irt_analysis,
         2: render_expert_system,
         3: render_categorization,
-        4: render_settings
     }
     
     # Рендеринг каждого таба

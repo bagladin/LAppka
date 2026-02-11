@@ -11,9 +11,8 @@ from modules.expert_system.expert_system import generate_expert_analysis, comput
 
 def display_expert_system(questions):
     """Отображение экспертной системы"""
-    
+    questions = [q for q in questions if not q.get('is_main_question', False)]
     try:
-        # Генерируем экспертный анализ
         expert_analysis = generate_expert_analysis(questions)
         
         if not expert_analysis:
@@ -66,10 +65,9 @@ def display_expert_system(questions):
             # Справка с формулой коэффициента покрытия - ПЕРЕД объяснением
             with st.expander("📖 Справка: Формула коэффициента перекрытия"):
                 st.markdown("""
-                ### Коэффициент перекрытия (Coverage / Overlap Index)
+                ### Коэффициент перекрытия (Overlap Index)
                 
-                Коэффициент перекрытия показывает, какая доля диапазона способностей студентов 
-                пересекается с диапазоном сложности вопросов теста.
+                Доля диапазона способностей студентов, пересекающаяся с диапазоном сложности вопросов теста (в логит-шкале).
                 
                 $$
                 \\text{Перекрытие} = \\frac{L_{\\text{пересечение}}}{L_{\\text{общий}}} \\cdot 100\\%
@@ -115,12 +113,29 @@ def display_expert_system(questions):
         # KBTB — ВТОРЫМ блоком
         _render_kbtb_block(questions)
         
-        # Общие рекомендации
+        # Общие рекомендации (KBTB должен быть уже отрисован — target_level в session_state)
         general_recommendations = expert_analysis.get('general_recommendations', [])
+        target_level = st.session_state.get('kbtb_target_level') or {'L': 30, 'M': 50, 'H': 20}
+        question_analysis = expert_analysis.get('question_analysis', {})
+        n = question_analysis.get('total_questions', 0)
+        easy_a, medium_a, hard_a = (
+            question_analysis.get('easy_questions', 0),
+            question_analysis.get('medium_questions', 0),
+            question_analysis.get('hard_questions', 0),
+        )
         if general_recommendations:
             st.markdown("### 💡 Рекомендации экспертной системы")
             
-            for i, rec in enumerate(general_recommendations, 1):
+            for rec in general_recommendations:
+                # Количественная оценка для рекомендаций по балансу сложности
+                if "Слишком много легких" in rec:
+                    add_hard = max(0, round(n * target_level.get('H', 20) / 100) - hard_a)
+                    if add_hard > 0:
+                        rec = f"{rec} (ориентировочно +{add_hard} сложных)"
+                elif "Слишком много сложных" in rec:
+                    add_easy = max(0, round(n * target_level.get('L', 30) / 100) - easy_a)
+                    if add_easy > 0:
+                        rec = f"{rec} (ориентировочно +{add_easy} лёгких)"
                 if "критически" in rec.lower() or "критическое" in rec.lower():
                     st.error(f"🚨 **Критично:** {rec}")
                 elif "рекомендуется" in rec.lower() or "следует" in rec.lower():
@@ -147,15 +162,17 @@ def _render_kbtb_block(questions):
         l1, l2, l3 = st.columns(3)
         with l1:
             target_l = st.slider("Лёгкие (L), %", 0, 100, 30, key="kbtb_l")
+        max_m = 100 - target_l
         with l2:
-            target_m = st.slider("Средние (M), %", 0, 100, 50, key="kbtb_m")
+            target_m = st.slider("Средние (M), %", 0, max(0, max_m), min(50, max_m), key="kbtb_m",
+                                help="Остаток после L распределяется между M и H")
+        target_h = 100 - target_l - target_m
         with l3:
-            target_h = st.slider("Сложные (H), %", 0, 100, 20, key="kbtb_h")
-        if target_l + target_m + target_h != 100:
-            st.caption("Сумма L+M+H ≠ 100%. При расчёте будет использована нормализация.")
+            st.metric("Сложные (H), %", target_h, help="Вычисляется автоматически: H = 100 − L − M")
 
     target_type = {'O': float(target_o), 'Z': float(100 - target_o)}
     target_level = {'L': float(target_l), 'M': float(target_m), 'H': float(target_h)}
+    st.session_state['kbtb_target_level'] = target_level
     res = compute_kbtb(questions, target_type, target_level, min_questions=int(min_q))
 
     kbtb = res['kbtb']
@@ -230,7 +247,7 @@ def _render_kbtb_block(questions):
         - $n$ — количество вопросов
         - $n_{\\text{мин}}$ — минимальное требуемое количество вопросов
         
-        **Интерпретация:** КБТБ ∈ [0, 1], где 1 — идеальная сбалансированность
+        **Интерпретация:** КБТБ ∈ [0, 1]; 1 — идеальная сбалансированность.
         """)
     
     st.markdown("---")

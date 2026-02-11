@@ -4,6 +4,7 @@
 
 from typing import List, Dict, Any, Tuple, Set
 import re
+import numpy as np
 from difflib import SequenceMatcher
 from modules.categorization.moodle_parser import is_open_question_type
 
@@ -127,13 +128,15 @@ def find_and_deduplicate_questions(analyzed_questions: List[Dict[str, Any]]) -> 
     
     for signature, questions in signature_groups.items():
         # Берем первого представителя
-        representative = questions[0]
+        representative = questions[0].copy()
+        # Добавляем duplicate_ids и display_id для отображения в карточках
+        all_ids = [q.get('id', '') for q in questions if q.get('id')]
+        if len(all_ids) > 1:
+            duplicates_info[signature] = all_ids
+            rep_id = representative.get('id', '')
+            representative['duplicate_ids'] = [i for i in all_ids if i != rep_id]
+            representative['display_id'] = rep_id + (' (' + ', '.join(representative['duplicate_ids']) + ')' if representative['duplicate_ids'] else '')
         deduplicated.append(representative)
-        
-        # Сохраняем информацию о дубликатах (если их больше одного)
-        if len(questions) > 1:
-            duplicate_ids = [q.get('id', '') for q in questions]
-            duplicates_info[signature] = duplicate_ids
     
     return deduplicated, duplicates_info
 
@@ -285,7 +288,8 @@ def calculate_text_similarity(text1: str, text2: str) -> float:
 
 def categorize_questions(
     moodle_questions: List[Dict[str, Any]],
-    analyzed_questions: List[Dict[str, Any]]
+    analyzed_questions: List[Dict[str, Any]],
+    easy_threshold: float = 70.0
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], Set[str], List[str], Dict[str, List[str]]]:
     """
     Категоризирует вопросы по правилам:
@@ -320,50 +324,30 @@ def categorize_questions(
     
     # Сопоставляем Moodle вопросы с проанализированными по тексту вопроса
     matched_questions = []
-    matching_info = []  # Для отладочной таблицы
+    matching_info_raw = []  # Временно сохраняем для построения дублей
     
     for mq in moodle_questions:
-        # Получаем ID из Moodle
         moodle_id = mq.get('id', '') or mq.get('name_from_comment', '') or '?'
-        
-        # Извлекаем текст вопроса из GIFT
         gift_text = mq.get('text', '')
         moodle_question_text = extract_question_text_from_gift(gift_text)
-        
-        # Ищем совпадение по тексту вопроса (90% схожести)
         matched = None
         best_similarity = 0.0
         
         if moodle_question_text:
-            # Получаем текст вопроса из анализа
             for aq in deduplicated_questions:
                 analyzed_question_text = aq.get('title', '').strip()
-                
                 if analyzed_question_text:
-                    # Вычисляем схожесть текстов
                     similarity = calculate_text_similarity(moodle_question_text, analyzed_question_text)
-                    
-                    # Если схожесть >= 90%, считаем это мэтчем
                     if similarity >= 0.9 and similarity > best_similarity:
                         matched = aq
                         best_similarity = similarity
         
-        # Собираем информацию для отладочной таблицы
-        if matched:
-            analyzed_id = matched.get('id', '')
-            # Проверяем, является ли это дубликатом (если ID есть в списке дубликатов)
-            is_duplicate = analyzed_id in all_duplicate_ids
-            matching_info.append({
-                'moodle_id': moodle_id,
-                'analyzed_id': analyzed_id if analyzed_id else 'Не найдено',
-                'is_duplicate': 'Дубль' if is_duplicate else ''
-            })
-        else:
-            matching_info.append({
-                'moodle_id': moodle_id,
-                'analyzed_id': 'Не найдено',
-                'is_duplicate': ''
-            })
+        analyzed_id = matched.get('id', '') if matched else ''
+        matching_info_raw.append({
+            'moodle_id': moodle_id,
+            'analyzed_id': analyzed_id if analyzed_id else 'Не найдено',
+            'matched': matched is not None
+        })
         
         if matched:
             # Используем тип вопроса из анализа, если он есть (более точный)
@@ -385,24 +369,32 @@ def categorize_questions(
             except (ValueError, TypeError):
                 discrimination = 0.0
             
+            attempts = 0
+            try:
+                a = matched.get('attempts', 0)
+                attempts = int(float(str(a).replace(',', '.').replace(' ', '')) or 0)
+            except (ValueError, TypeError):
+                pass
             matched_questions.append({
                 'moodle_question': mq,
                 'analysis': matched,
                 'difficulty': difficulty,
                 'discrimination': discrimination,
-                'type': final_type
+                'type': final_type,
+                'attempts': attempts
             })
         else:
-            # Если не нашли совпадение, используем данные из Moodle
+            # Если не нашли совпадение, используем данные из Moodle (попыток нет)
             matched_questions.append({
                 'moodle_question': mq,
                 'analysis': None,
-                'difficulty': 50.0,  # Средняя сложность по умолчанию
-                'discrimination': 0.5,  # Средняя дискриминация по умолчанию
-                'type': mq.get('type', 'Множественный выбор')
+                'difficulty': 50.0,
+                'discrimination': 0.5,
+                'type': mq.get('type', 'Множественный выбор'),
+                'attempts': 0
             })
     
-    # Определяем 10% самых легких вопросов (с наибольшей сложностью)
+    # Определяем 10% самых легких вопросов
     sorted_by_difficulty = sorted(matched_questions, key=lambda x: x['difficulty'], reverse=True)
     top_10_percent_count = max(1, int(len(sorted_by_difficulty) * 0.1))
     easiest_questions = set()
@@ -410,6 +402,14 @@ def categorize_questions(
         if i < len(sorted_by_difficulty):
             q_name = sorted_by_difficulty[i]['moodle_question'].get('name', '')
             easiest_questions.add(q_name)
+    
+    # Порог «мало попыток»: 25-й перцентиль или минимум 30 (правило Наннали для стабильной CTT)
+    attempts_list = [q.get('attempts', 0) for q in matched_questions if q.get('attempts', 0) > 0]
+    if attempts_list:
+        p25 = float(np.percentile(attempts_list, 25))
+        min_attempts_threshold = max(30, p25)  # минимум 30, иначе — нижний квартиль
+    else:
+        min_attempts_threshold = 30
     
     # Категоризируем вопросы
     categories = {
@@ -420,26 +420,28 @@ def categorize_questions(
         '3 На переделку': []
     }
     
+    low_attempts_questions = set()
     for q in matched_questions:
         difficulty = q['difficulty']
         discrimination = q['discrimination']
         question_type = q['type']
         question_name = q['moodle_question'].get('name', '')
         
-        # Проверяем, нужно ли отправить на переделку
         needs_revision = False
         
-        # Плохая дискриминация
         if discrimination < 0.3:
             needs_revision = True
-        
-        # 10% самых легких
         if question_name in easiest_questions:
             needs_revision = True
+        if q.get('analysis'):
+            attempts = q.get('attempts', 0) or 0
+            if attempts < min_attempts_threshold:
+                needs_revision = True
+                low_attempts_questions.add(question_name)
         
         if needs_revision:
             categories['3 На переделку'].append(q)
-        elif difficulty >= 70:
+        elif difficulty >= easy_threshold:
             # Легкие вопросы
             if is_open_question_type(question_type):
                 categories['1.1 Легкие/Открытые'].append(q)
@@ -459,4 +461,24 @@ def categorize_questions(
         if q.get('analysis') is None
     ]
     
-    return categories, easiest_questions, unmatched_questions, duplicates_info, matching_info
+    # Строим matching_info с указанием дубля какого вопроса
+    # Группируем по analyzed_id -> [moodle_ids]
+    analyzed_to_moodle = {}
+    for r in matching_info_raw:
+        aid = r['analyzed_id']
+        if aid and aid != 'Не найдено':
+            analyzed_to_moodle.setdefault(aid, []).append(r['moodle_id'])
+    
+    matching_info = []
+    for r in matching_info_raw:
+        aid = r['analyzed_id']
+        mid = r['moodle_id']
+        others = [m for m in analyzed_to_moodle.get(aid, []) if m != mid] if aid and aid != 'Не найдено' else []
+        is_duplicate = ', '.join(sorted(others)) if others else ''
+        matching_info.append({
+            'moodle_id': mid,
+            'analyzed_id': aid if r['matched'] else 'Не найдено',
+            'is_duplicate': is_duplicate
+        })
+    
+    return categories, easiest_questions, unmatched_questions, duplicates_info, matching_info, low_attempts_questions

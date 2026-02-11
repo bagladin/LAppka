@@ -10,6 +10,8 @@ from modules.expert_system.expert_system import generate_expert_analysis
 
 def display_irt_analysis(questions):
     """Отображение IRT анализа с Person-Item Map"""
+    questions = [q for q in questions if not q.get('is_main_question', False)]
+    
     # Создаем Person-Item Map
     try:
         person_item_fig = create_person_item_map(questions)

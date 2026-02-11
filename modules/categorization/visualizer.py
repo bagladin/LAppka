@@ -30,12 +30,19 @@ def _get_formulation(question: Dict[str, Any]) -> str:
 def _render_compact_card(
     q: Dict[str, Any],
     easiest_questions: Optional[Set[str]],
+    low_attempts_questions: Optional[Set[str]],
     key_suffix: str,
 ) -> None:
     """Компактная карточка: формулировка, метрики, кнопка «Развернуть». Без таблицы ответов."""
     moodle_q = q['moodle_question']
     analysis = q.get('analysis')
     qid = moodle_q.get('id', '') or moodle_q.get('name_from_comment', '') or '?'
+    # Добавляем позиции из анализа (5.1, 6.1) к ID из GIFT
+    if analysis:
+        pos_parts = [analysis.get('id', '')] + list(analysis.get('duplicate_ids') or [])
+        pos_parts = [p for p in pos_parts if p]
+        if pos_parts:
+            qid = f"{qid} ({', '.join(pos_parts)})"
     qtype = q.get('type', 'Множественный выбор')
     try:
         difficulty = float(q.get('difficulty', 0))
@@ -61,14 +68,15 @@ def _render_compact_card(
 
     # Причина «на переделку» для категории 3
     name = moodle_q.get('name', '')
-    if easiest_questions and (discrimination < 0.3 or name in easiest_questions):
-        reasons = []
-        if discrimination < 0.3:
-            reasons.append('Низкая дискриминация')
-        if name in easiest_questions:
-            reasons.append('10% самых лёгких')
-        if reasons:
-            st.caption('⚠️ ' + ', '.join(reasons))
+    rev_reasons = []
+    if discrimination < 0.3:
+        rev_reasons.append('Низкая дискриминация')
+    if easiest_questions and name in easiest_questions:
+        rev_reasons.append('10% самых лёгких')
+    if low_attempts_questions and name in low_attempts_questions:
+        rev_reasons.append('Мало попыток')
+    if rev_reasons:
+        st.caption('⚠️ ' + ', '.join(rev_reasons))
 
     expand_id = ''
     if analysis and analysis.get('id') is not None:
@@ -82,7 +90,7 @@ def _render_compact_card(
     )
 
 
-def _render_cards_row(questions: List[Dict[str, Any]], easiest: Optional[Set[str]], prefix: str) -> None:
+def _render_cards_row(questions: List[Dict[str, Any]], easiest: Optional[Set[str]], low_attempts: Optional[Set[str]], prefix: str) -> None:
     """Сетка по 3 карточки в ряд."""
     cols = 3
     for i in range(0, len(questions), cols):
@@ -91,12 +99,14 @@ def _render_cards_row(questions: List[Dict[str, Any]], easiest: Optional[Set[str
             idx = i + j
             if idx < len(questions):
                 with columns[j]:
-                    _render_compact_card(questions[idx], easiest, f"{prefix}_{idx}")
+                    _render_compact_card(questions[idx], easiest, low_attempts, f"{prefix}_{idx}")
 
 
 def display_categorization_tree(
     categorized_questions: Dict[str, List[Dict[str, Any]]],
     easiest_questions: Optional[Set[str]] = None,
+    low_attempts_questions: Optional[Set[str]] = None,
+    easy_threshold: float = 70.0,
 ) -> None:
     """
     Отображает категоризацию: слева — закрытые, справа — открытые в компактных карточках.
@@ -164,14 +174,14 @@ def display_categorization_tree(
 
     # --- Категория 1: Легкие ---
     with tab1:
-        st.markdown("### 📁 Категория 1: Легкие вопросы (≥ 70%)")
+        st.markdown(f"### 📁 Категория 1: Легкие вопросы (≥ {easy_threshold:.0f}%)")
         col_left, col_right = st.columns(2)
         with col_left:
             st.markdown("#### Закрытые вопросы")
             st.caption("Остальные типы вопросов")
             closed = categorized_questions.get('1.2 Легкие/Закрытые', [])
             if closed:
-                _render_cards_row(closed, easiest_questions, "c1_closed")
+                _render_cards_row(closed, easiest_questions, low_attempts_questions, "c1_closed")
             else:
                 st.info("Нет вопросов")
         with col_right:
@@ -179,20 +189,20 @@ def display_categorization_tree(
             st.caption("Числовой ответ, Короткий ответ")
             open_q = categorized_questions.get('1.1 Легкие/Открытые', [])
             if open_q:
-                _render_cards_row(open_q, easiest_questions, "c1_open")
+                _render_cards_row(open_q, easiest_questions, low_attempts_questions, "c1_open")
             else:
                 st.info("Нет вопросов")
 
     # --- Категория 2: Средние + Сложные ---
     with tab2:
-        st.markdown("### 📁 Категория 2: Средние + Сложные (< 70%)")
+        st.markdown(f"### 📁 Категория 2: Средние + Сложные (< {easy_threshold:.0f}%)")
         col_left, col_right = st.columns(2)
         with col_left:
             st.markdown("#### Закрытые вопросы")
             st.caption("Остальные типы вопросов")
             closed = categorized_questions.get('2.2 Средние+Сложные/Закрытые', [])
             if closed:
-                _render_cards_row(closed, easiest_questions, "c2_closed")
+                _render_cards_row(closed, easiest_questions, low_attempts_questions, "c2_closed")
             else:
                 st.info("Нет вопросов")
         with col_right:
@@ -200,18 +210,18 @@ def display_categorization_tree(
             st.caption("Числовой ответ, Короткий ответ")
             open_q = categorized_questions.get('2.1 Средние+Сложные/Открытые', [])
             if open_q:
-                _render_cards_row(open_q, easiest_questions, "c2_open")
+                _render_cards_row(open_q, easiest_questions, low_attempts_questions, "c2_open")
             else:
                 st.info("Нет вопросов")
 
     # --- Категория 3: На переделку ---
     with tab3:
         st.markdown("### ⚠️ Категория 3: На переделку")
-        st.caption("Плохая дискриминация (< 0.3) и 10% самых лёгких")
+        st.caption("Плохая дискриминация (< 0.3), 10% самых лёгких, мало попыток")
         rev = categorized_questions.get('3 На переделку', [])
         if rev:
             st.markdown(f"**Всего: {len(rev)}**")
-            _render_cards_row(rev, easiest_questions, "c3")
+            _render_cards_row(rev, easiest_questions, low_attempts_questions, "c3")
         else:
             st.info("Нет вопросов")
 

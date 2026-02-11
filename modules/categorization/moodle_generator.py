@@ -56,25 +56,26 @@ def generate_moodle_file(
     lines.append("")
     lines.append("")
     
-    # Проходим по категориям в порядке
+    # Плоская структура: названия категорий как у пользователя + (Lappka)
+    # Без промежуточных "Лёгкие" и т.п., сразу "Лёгкие открытые", "Лёгкие закрытые"
     category_order = [
-        '1.1 Легкие/Открытые',
-        '1.2 Легкие/Закрытые',
-        '2.1 Средние+Сложные/Открытые',
-        '2.2 Средние+Сложные/Закрытые',
-        '3 На переделку'
+        ('1.1 Легкие/Открытые', 'Лёгкие открытые (Lappka)'),
+        ('1.2 Легкие/Закрытые', 'Лёгкие закрытые (Lappka)'),
+        ('2.1 Средние+Сложные/Открытые', 'Средние+Сложные открытые (Lappka)'),
+        ('2.2 Средние+Сложные/Закрытые', 'Средние+Сложные закрытые (Lappka)'),
+        ('3 На переделку', 'На переделку (Lappka)'),
     ]
     
-    for category_name in category_order:
-        if category_name not in categorized_questions:
+    for internal_name, display_name in category_order:
+        if internal_name not in categorized_questions:
             continue
         
-        questions = categorized_questions[category_name]
+        questions = categorized_questions[internal_name]
         if not questions:
             continue
         
-        # Добавляем категорию
-        category_path = f"{base_category}/{category_name}"
+        # Плоский путь: base_category/Лёгкие открытые (Lappka)
+        category_path = f"{base_category}/{display_name}"
         lines.append(f"// question: 0  name: Switch category to $course$/top/{category_path}")
         lines.append(f"$CATEGORY: $course$/top/{category_path}")
         lines.append("")

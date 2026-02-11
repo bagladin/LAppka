@@ -22,12 +22,14 @@ def create_person_item_map(questions_data: List[Dict[str, Any]],
     - Plotly график Person-Item Map
     """
     
-    # Извлекаем данные о сложности вопросов
+    # Берём только подвопросы (без is_main_question) — как в модуле 1
+    qs = [q for q in questions_data if not q.get('is_main_question', False)]
+    
     difficulties = []
     question_ids = []
     question_types = []
     
-    for question in questions_data:
+    for question in qs:
         try:
             # Преобразуем сложность в логит-шкалу
             difficulty = float(question.get('difficulty', 0))
@@ -38,7 +40,9 @@ def create_person_item_map(questions_data: List[Dict[str, Any]],
                 p = np.clip(p, 0.01, 0.99)
                 difficulty_logit = np.log(p / (1 - p))
                 difficulties.append(difficulty_logit)
-                question_ids.append(question.get('id', ''))
+                # Для дублей показываем display_id (5.1 (6.1)), иначе id
+                qid = question.get('display_id') or question.get('id', '')
+                question_ids.append(qid)
                 question_types.append(question.get('type', ''))
         except (ValueError, TypeError, ZeroDivisionError):
             continue
@@ -101,16 +105,20 @@ def create_person_item_map(questions_data: List[Dict[str, Any]],
 
 def add_student_distribution(fig: go.Figure, abilities: List[float]) -> None:
     """
-    Добавляет распределение способностей студентов на график
+    Добавляет распределение способностей студентов на график.
+    Высота (длина) столбиков пропорциональна количеству студентов в каждом интервале.
     """
-    # Создаем гистограмму способностей
     hist, bin_edges = np.histogram(abilities, bins=20, range=(-4, 4))
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
     
-    # Добавляем гистограмму (левая сторона)
+    # Масштабируем длину столбиков: max_count -> -0.3 (в пределах оси)
+    max_count = max(hist) if hist.size and np.max(hist) > 0 else 1
+    bar_lengths = [-h * (0.3 / max_count) for h in hist]
+    
     fig.add_trace(go.Bar(
-        x=[-0.3] * len(hist),
-        y=bin_edges[:-1],
-        width=0.2,
+        x=bar_lengths,
+        y=bin_centers,
+        width=0.15,
         orientation='h',
         name='Students',
         marker=dict(
@@ -156,64 +164,71 @@ def add_student_distribution(fig: go.Figure, abilities: List[float]) -> None:
 def add_question_distribution(fig: go.Figure, difficulties: List[float], 
                             question_ids: List[str], question_types: List[str]) -> None:
     """
-    Добавляет распределение сложности вопросов на график
+    Добавляет распределение сложности вопросов на график.
+    Для каждого типа вопросов — своя вертикальная «ось» (x-смещение), чтобы снизить перекрытие.
     """
-    # Группируем вопросы по типам для разных цветов
     type_colors = {
         'Числовой ответ': 'red',
-        'Множественный выбор': 'green', 
+        'Короткий ответ': 'darkorange',
+        'Множественный выбор': 'green',
+        'Верно/Неверно': 'blue',
         'На соответствие': 'orange',
-        'Выбор пропущенных слов': 'purple'
+        'Выбор пропущенных слов': 'purple',
+    }
+    type_x_offsets = {
+        'Числовой ответ': 0.22,
+        'Короткий ответ': 0.28,
+        'Множественный выбор': 0.34,
+        'Верно/Неверно': 0.40,
+        'На соответствие': 0.46,
+        'Выбор пропущенных слов': 0.52,
     }
     
-    # Создаем scatter plot для вопросов
-    for q_type in set(question_types):
-        # Пропускаем "случайный" - это не тип вопроса, а способ выбора вопроса из категории
-        if q_type.lower() in ['случайный', 'случайный вопрос', 'random', '']:
+    valid_types = [t for t in set(question_types) 
+                   if t and t.lower() not in ['случайный', 'случайный вопрос', 'random', '']]
+    type_order = sorted(valid_types)
+    unknown_offset = 0.58
+    for i, q_type in enumerate(type_order):
+        x_position = type_x_offsets.get(q_type, unknown_offset + i * 0.04)
+        color = type_colors.get(q_type, ['teal', 'coral', 'darkviolet', 'saddlebrown'][i % 4])
+        
+        type_difficulties = [d for d, t in zip(difficulties, question_types) if t == q_type]
+        type_ids = [id for id, t in zip(question_ids, question_types) if t == q_type]
+        
+        if not type_difficulties:
             continue
-        if q_type in type_colors:
-            type_difficulties = [d for d, t in zip(difficulties, question_types) if t == q_type]
-            type_ids = [id for id, t in zip(question_ids, question_types) if t == q_type]
-            
-            # Определяем позицию выноски в зависимости от типа вопроса
-            if q_type in ['На соответствие', 'Числовой ответ']:
-                text_position = 'middle left'
-                x_position = 0.3
-            else:  # 'Множественный выбор', 'Выбор пропущенных слов'
-                text_position = 'middle right'
-                x_position = 0.3
-            
-            fig.add_trace(go.Scatter(
-                x=[x_position] * len(type_difficulties),
-                y=type_difficulties,
-                mode='markers+text',
-                marker=dict(
-                    symbol='circle',
-                    size=8,
-                    color=type_colors[q_type],
-                    line=dict(width=1, color='black')
-                ),
-                text=type_ids,
-                textposition=text_position,
-                name=q_type,
-                hovertemplate='<b>Question %{text}</b><br>Type: ' + q_type + '<br>Difficulty: %{y:.2f}<extra></extra>'
-            ))
+        
+        # Чередование подписей: нечётная ось (i=0,2,...) — слева, чётная (i=1,3,...) — справа
+        text_position = 'middle left' if i % 2 == 0 else 'middle right'
+        
+        fig.add_trace(go.Scatter(
+            x=[x_position] * len(type_difficulties),
+            y=type_difficulties,
+            mode='markers+text',
+            marker=dict(
+                symbol='circle',
+                size=8,
+                color=color,
+                line=dict(width=1, color='black')
+            ),
+            text=type_ids,
+            textposition=text_position,
+            name=q_type,
+            hovertemplate='<b>Question %{text}</b><br>Type: ' + q_type + '<br>Difficulty: %{y:.2f}<extra></extra>'
+        ))
 
 
 def create_irt_summary_stats(questions_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Создает сводную статистику для IRT анализа
-    
-    Параметры:
-    - questions_data: список данных о вопросах
-    
-    Возвращает:
-    - словарь со статистикой
+    Создает сводную статистику для IRT анализа.
+    total_questions — все подвопросы (без is_main_question).
+    easy/medium/hard — по вопросам с difficulty > 0.
     """
+    qs = [q for q in questions_data if not q.get('is_main_question', False)]
     difficulties = []
     discriminations = []
     
-    for question in questions_data:
+    for question in qs:
         try:
             difficulty = float(question.get('difficulty', 0))
             discrimination = float(question.get('discrimination', 0))
@@ -224,28 +239,28 @@ def create_irt_summary_stats(questions_data: List[Dict[str, Any]]) -> Dict[str, 
         except (ValueError, TypeError):
             continue
     
-    if not difficulties:
+    if not qs:
         return {}
     
-    # Преобразуем в логит-шкалу безопасно
+    # Преобразуем в логит-шкалу (для расчётов; при пустых difficulties — заглушки)
     difficulties_logit = []
-    for d in difficulties:
-        p = d / 100
-        p = np.clip(p, 0.01, 0.99)  # Ограничиваем значения
-        logit = np.log(p / (1 - p))
-        difficulties_logit.append(logit)
+    if difficulties:
+        for d in difficulties:
+            p = np.clip(d / 100, 0.01, 0.99)
+            difficulties_logit.append(np.log(p / (1 - p)))
     
     stats = {
-        'total_questions': len(difficulties),
-        'difficulty_mean': np.mean(difficulties),
-        'difficulty_std': np.std(difficulties),
-        'difficulty_logit_mean': np.mean(difficulties_logit),
-        'difficulty_logit_std': np.std(difficulties_logit),
-        'discrimination_mean': np.mean(discriminations),
-        'discrimination_std': np.std(discriminations),
+        'total_questions': len(qs),  # Фактическое количество (как при импорте в модуле 1)
+        'difficulty_mean': float(np.mean(difficulties)) if difficulties else 0,
+        'difficulty_std': float(np.std(difficulties)) if difficulties else 0,
+        'difficulty_logit_mean': float(np.mean(difficulties_logit)) if difficulties_logit else 0,
+        'difficulty_logit_std': float(np.std(difficulties_logit)) if difficulties_logit else 0,
+        'discrimination_mean': float(np.mean(discriminations)) if discriminations else 0,
+        'discrimination_std': float(np.std(discriminations)) if discriminations else 0,
         'easy_questions': len([d for d in difficulties if d > 80]),
         'medium_questions': len([d for d in difficulties if 40 <= d <= 80]),
-        'hard_questions': len([d for d in difficulties if d < 40])
+        'hard_questions': len([d for d in difficulties if d < 40]),
+        'questions_with_valid_difficulty': len(difficulties),
     }
     
     return stats
@@ -253,18 +268,13 @@ def create_irt_summary_stats(questions_data: List[Dict[str, Any]]) -> Dict[str, 
 
 def create_difficulty_by_type_boxplot(questions_data: List[Dict[str, Any]]) -> go.Figure:
     """
-    Создает boxplot распределения сложности по типам вопросов
-    
-    Параметры:
-    - questions_data: список данных о вопросах
-    
-    Возвращает:
-    - Plotly график boxplot
+    Создает boxplot распределения сложности по типам вопросов.
+    Учитываются только подвопросы (без is_main_question).
     """
-    # Собираем данные по типам вопросов
+    qs = [q for q in questions_data if not q.get('is_main_question', False)]
     type_difficulties = {}
     
-    for question in questions_data:
+    for question in qs:
         try:
             q_type = question.get('type', 'Неизвестный тип')
             difficulty = float(question.get('difficulty', 0))
@@ -287,12 +297,14 @@ def create_difficulty_by_type_boxplot(questions_data: List[Dict[str, Any]]) -> g
     if not type_difficulties:
         return go.Figure()
     
-    # Цветовая схема для типов вопросов
+    # Цветовая схема для типов вопросов (совпадает с Person-Item Map)
     type_colors = {
         'Числовой ответ': 'red',
-        'Множественный выбор': 'green', 
+        'Короткий ответ': 'darkorange',
+        'Множественный выбор': 'green',
+        'Верно/Неверно': 'blue',
         'На соответствие': 'orange',
-        'Выбор пропущенных слов': 'purple'
+        'Выбор пропущенных слов': 'purple',
     }
     
     # Создаем boxplot

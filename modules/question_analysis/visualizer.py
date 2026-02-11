@@ -19,12 +19,14 @@ def display_question_analysis(questions, answers_data):
                 question['answers'] = answers_data[i]
     
     if questions:
-        # Фильтруем основные вопросы (без точки) - они нужны только для структуры категорий
+        # Фильтруем основные вопросы (без точки)
         display_questions = [q for q in questions if not q.get('is_main_question', False)]
+        # Реальное количество уникальных вопросов (без дублей)
+        unique_count = len(display_questions)
         
         with st.expander("Отладка (колонки и счетчики)"):
-            st.write({"questions": len(display_questions), "answer_groups": len(answers_data), "total_including_main": len(questions)})
-        st.markdown(f"**Найдено вопросов:** {len(display_questions)}")
+            st.write({"questions": unique_count, "answer_groups": len(answers_data), "total_including_main": len(questions)})
+        st.markdown(f"**Найдено вопросов:** {unique_count}")
         if answers_data:
             st.markdown(f"**Найдено групп ответов:** {len(answers_data)}")
         
@@ -91,7 +93,7 @@ def display_question_analysis(questions, answers_data):
             fig_left, fig_right = create_difficulty_distribution_plot(questions, question_type_filter=selected_type)
             if fig_left.data or fig_right.data:
                 filter_text = f" (тип: {selected_type})" if selected_type != "Все" else ""
-                st.markdown(f"### 📊 Распределение вопросов по категориям{filter_text}")
+                st.markdown(f"### Распределение вопросов по категориям{filter_text}")
                 col_left, col_right = st.columns(2)
                 with col_left:
                     st.plotly_chart(fig_left, use_container_width=True)
@@ -111,10 +113,11 @@ def display_question_analysis(questions, answers_data):
 def display_single_question(question):
     """Отображение одного вопроса"""
     difficulty_class = get_difficulty_color(question['difficulty'])
+    display_id = question.get('display_id') or question.get('id', '')
     
     st.markdown(f"""
     <div class="question-block {difficulty_class}">
-        <h4>Вопрос {question['id']}: {question['title']}</h4>
+        <h4>Вопрос {display_id}: {question['title']}</h4>
         <p><strong>Тип:</strong> {question['type']} | <strong>Попыток:</strong> {question['attempts']}</p>
     </div>
     """, unsafe_allow_html=True)
@@ -154,7 +157,7 @@ def display_single_question(question):
     
     # Показываем ответы с частотами, если они есть
     if question.get('answers') and len(question['answers']) > 0:
-        st.markdown("**📊 Варианты ответов с частотами:**")
+        st.markdown("**Варианты ответов с частотами:**")
         # Представляем ответы в табличном виде, с русскими заголовками
         ans_df = pd.DataFrame(question['answers'])
         # Переименуем ключи в русские подписи

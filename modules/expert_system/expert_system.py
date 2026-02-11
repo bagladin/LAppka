@@ -213,6 +213,8 @@ def analyze_question_difficulty_distribution(questions: List[Dict[str, Any]]) ->
     discriminations = []
     question_types = {}
     low_discrimination_questions = []
+    low_attempts_questions = []
+    min_attempts = 30  # правило Наннали для надёжной статистики
     
     for question in questions:
         try:
@@ -233,16 +235,26 @@ def analyze_question_difficulty_distribution(questions: List[Dict[str, Any]]) ->
             
             # Вопросы с низкой дискриминацией
             if discrimination < 0.3:
-                # Получаем начало формулировки вопроса (первые 150 символов)
                 title = question.get('title', '')
                 title_preview = title[:150] + '...' if len(title) > 150 else title
+                display_id = question.get('display_id') or q_id
                 low_discrimination_questions.append({
                     'id': q_id,
+                    'display_id': display_id,
                     'type': q_type,
                     'difficulty': difficulty,
                     'discrimination': discrimination,
                     'title': title_preview
                 })
+            
+            # Вопросы с малым числом попыток (ненадёжная статистика)
+            try:
+                attempts = int(float(str(question.get('attempts', 0)).replace(',', '.').replace(' ', '')) or 0)
+                if 0 < attempts < min_attempts:
+                    display_id_att = question.get('display_id') or q_id
+                    low_attempts_questions.append({'display_id': display_id_att, 'attempts': attempts})
+            except (ValueError, TypeError):
+                pass
                 
         except (ValueError, TypeError):
             continue
@@ -272,6 +284,7 @@ def analyze_question_difficulty_distribution(questions: List[Dict[str, Any]]) ->
         'mean_discrimination': np.mean(discriminations),
         'question_types': question_types,
         'low_discrimination_questions': low_discrimination_questions,
+        'low_attempts_questions': low_attempts_questions,
         'distribution_balance': analyze_difficulty_balance(easy_questions, medium_questions, hard_questions)
     }
     
@@ -511,13 +524,20 @@ def generate_general_recommendations(student_analysis: Dict, question_analysis: 
     
     # Рекомендации по вопросам
     if question_analysis.get('low_discrimination_questions'):
-        low_disc_count = len(question_analysis['low_discrimination_questions'])
-        recommendations.append(f"Найдено {low_disc_count} вопросов с низкой дискриминацией - требуют пересмотра")
+        low_disc = question_analysis['low_discrimination_questions']
+        low_disc_count = len(low_disc)
+        ids_str = ', '.join(str(q.get('display_id', q.get('id', ''))) for q in low_disc)
+        recommendations.append(f"Найдено {low_disc_count} вопросов с низкой дискриминацией — требуют пересмотра ({ids_str})")
     
     if question_analysis.get('distribution_balance') == "смещенное к легким вопросам":
-        recommendations.append("Слишком много легких вопросов - добавьте сложные задания")
+        recommendations.append("Слишком много легких вопросов — добавьте сложные задания")
     elif question_analysis.get('distribution_balance') == "смещенное к сложным вопросам":
-        recommendations.append("Слишком много сложных вопросов - добавьте легкие задания")
+        recommendations.append("Слишком много сложных вопросов — добавьте легкие задания")
+    
+    if question_analysis.get('low_attempts_questions'):
+        low_att = question_analysis['low_attempts_questions']
+        ids_str = ', '.join(str(q.get('display_id', '')) for q in low_att)
+        recommendations.append(f"Необходимо протестировать большее количество студентов по вопросам с малым числом попыток (ниже порога надёжности) ({ids_str})")
     
     # Рекомендации по соответствию
     if match_analysis.get('match_quality') == "плохое":
