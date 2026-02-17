@@ -46,5 +46,3 @@ streamlit run app_new.py
 MIT License
 
 ---
-
-*Подробное описание методов и формул — в [docs/ARTICLE_VESTNIK_ITMO_DRAFT.md](docs/ARTICLE_VESTNIK_ITMO_DRAFT.md)*
