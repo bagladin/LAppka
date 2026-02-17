@@ -52,14 +52,13 @@ venv.bak/
 # Draft article (черновик, не для репо)
 docs/ARTICLE_VESTNIK_ITMO_DRAFT.md
 
-# Вспомогательные MD для настройки (не нужны для понимания проекта)
+# Вспомогательные MD и скрипты (не нужны для понимания проекта)
 GIT_SETUP_FIX.md
 QUICK_GIT_SETUP.md
 GITHUB_SETUP.md
 РЕШЕНИЕ_ПРОБЛЕМЫ.md
-DEPLOY.md 
-GIT_SETUP_FIX.md 
-MIGRATION_GUIDE.md 
+DEPLOY.md
+MIGRATION_GUIDE.md
 QUICK_START.md
 push_to_github.sh
 start.sh
@@ -75,7 +74,6 @@ data/test_files/
 !Лого.jpg
 !requirements.txt
 !README.md
-
 
 # Logs
 *.log
