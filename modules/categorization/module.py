@@ -51,7 +51,7 @@ def render():
     uploaded_file = st.file_uploader(
         "Загрузите Moodle GIFT файл с вопросами",
         type=['txt', 'gift'],
-        help="Выберите файл, экспортированный из Moodle в формате GIFT",
+        help="Выберите файл, экспортированный из Moodle в формате GIFT. При локальном запуске данные остаются на вашем компьютере.",
         key="file_uploader_categorization"
     )
     

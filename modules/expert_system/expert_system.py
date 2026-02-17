@@ -483,9 +483,11 @@ def generate_expert_analysis(questions: List[Dict[str, Any]], student_abilities:
                 logit_difficulties.append(logit)
             
             # Генерируем нормальное распределение на основе сложности
+            # Фиксированный seed для воспроизводимости: один и тот же файл даёт одинаковый коэффициент перекрытия
             mean_ability = float(np.mean(logit_difficulties))
             std_ability = float(np.std(logit_difficulties))
-            # Используем реальное количество студентов вместо фиксированного 1000
+            seed = int(mean_ability * 10000 + std_ability * 1000) % (2**31)
+            np.random.seed(seed)
             student_abilities = np.random.normal(mean_ability, std_ability, num_students)
             student_abilities = np.clip(student_abilities, -4, 4)
             student_abilities = student_abilities.tolist()  # Преобразуем в список

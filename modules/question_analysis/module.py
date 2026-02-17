@@ -19,7 +19,7 @@ def render():
     uploaded_file = st.file_uploader(
         "Загрузите файл с данными тестирования",
         type=SUPPORTED_FILE_TYPES,
-        help="Выберите CSV или HTML файл с экспортированными данными из Moodle",
+        help="Выберите CSV или HTML файл с экспортированными данными из Moodle. При локальном запуске данные остаются на вашем компьютере.",
         key="file_uploader_question_analysis"
     )
     

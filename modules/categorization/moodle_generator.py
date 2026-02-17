@@ -50,14 +50,19 @@ def generate_moodle_file(
     """
     lines = []
     
-    # Базовая категория
+    # Родительская категория
     lines.append(f"// question: 0  name: Switch category to $course$/top/{base_category}")
     lines.append(f"$CATEGORY: $course$/top/{base_category}")
     lines.append("")
     lines.append("")
     
-    # Плоская структура: названия категорий как у пользователя + (Lappka)
-    # Без промежуточных "Лёгкие" и т.п., сразу "Лёгкие открытые", "Лёгкие закрытые"
+    # Субкатегория «Перегруппировка (Lappka)» — контейнер для всех групп вопросов
+    lappka_container = "Перегруппировка (Lappka)"
+    lines.append(f"// question: 0  name: Switch category to $course$/top/{base_category}/{lappka_container}")
+    lines.append(f"$CATEGORY: $course$/top/{base_category}/{lappka_container}")
+    lines.append("")
+    lines.append("")
+    
     category_order = [
         ('1.1 Легкие/Открытые', 'Лёгкие открытые (Lappka)'),
         ('1.2 Легкие/Закрытые', 'Лёгкие закрытые (Lappka)'),
@@ -74,8 +79,8 @@ def generate_moodle_file(
         if not questions:
             continue
         
-        # Плоский путь: base_category/Лёгкие открытые (Lappka)
-        category_path = f"{base_category}/{display_name}"
+        # Путь: base_category/Перегруппировка (Lappka)/Лёгкие открытые (Lappka)
+        category_path = f"{base_category}/{lappka_container}/{display_name}"
         lines.append(f"// question: 0  name: Switch category to $course$/top/{category_path}")
         lines.append(f"$CATEGORY: $course$/top/{category_path}")
         lines.append("")

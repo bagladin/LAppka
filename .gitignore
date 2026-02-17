@@ -49,6 +49,15 @@ venv.bak/
 .env.local
 .env.*.local
 
+# Draft article (черновик, не для репо)
+docs/ARTICLE_VESTNIK_ITMO_DRAFT.md
+
+# Вспомогательные MD для настройки (не нужны для понимания проекта)
+GIT_SETUP_FIX.md
+QUICK_GIT_SETUP.md
+GITHUB_SETUP.md
+РЕШЕНИЕ_ПРОБЛЕМЫ.md
+
 # Test files and data
 data/test_files/
 *.txt

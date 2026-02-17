@@ -50,8 +50,11 @@ def create_person_item_map(questions_data: List[Dict[str, Any]],
     # Создаем распределение способностей студентов (если не предоставлено)
     if student_ability_distribution is None:
         # Генерируем нормальное распределение на основе данных
+        # Фиксированный seed для воспроизводимости Person-Item Map
         mean_ability = np.mean(difficulties) if difficulties else 0
         std_ability = np.std(difficulties) if difficulties else 1
+        seed = int(mean_ability * 10000 + std_ability * 1000) % (2**31)
+        np.random.seed(seed)
         student_ability_distribution = np.random.normal(mean_ability, std_ability, 1000)
     
     # Создаем график
@@ -172,7 +175,7 @@ def add_question_distribution(fig: go.Figure, difficulties: List[float],
         'Короткий ответ': 'darkorange',
         'Множественный выбор': 'green',
         'Верно/Неверно': 'blue',
-        'На соответствие': 'orange',
+        'На соответствие': 'steelblue',  # Отличается от darkorange (короткий ответ)
         'Выбор пропущенных слов': 'purple',
     }
     type_x_offsets = {
@@ -303,7 +306,7 @@ def create_difficulty_by_type_boxplot(questions_data: List[Dict[str, Any]]) -> g
         'Короткий ответ': 'darkorange',
         'Множественный выбор': 'green',
         'Верно/Неверно': 'blue',
-        'На соответствие': 'orange',
+        'На соответствие': 'steelblue',
         'Выбор пропущенных слов': 'purple',
     }
     
