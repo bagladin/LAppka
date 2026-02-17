@@ -75,13 +75,7 @@ data/test_files/
 !Лого.jpg
 !requirements.txt
 !README.md
-!QUICK_START.md
-!QUICK_GIT_SETUP.md
-!MIGRATION_GUIDE.md
-!GITHUB_SETUP.md
-!РЕШЕНИЕ_ПРОБЛЕМЫ.md
-!ЗАПУСК.txt
-!ПЕРЕНОС_ПРОЕКТА.txt
+
 
 # Logs
 *.log
