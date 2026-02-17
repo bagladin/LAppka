@@ -57,7 +57,12 @@ GIT_SETUP_FIX.md
 QUICK_GIT_SETUP.md
 GITHUB_SETUP.md
 РЕШЕНИЕ_ПРОБЛЕМЫ.md
-
+DEPLOY.md 
+GIT_SETUP_FIX.md 
+MIGRATION_GUIDE.md 
+QUICK_START.md
+push_to_github.sh
+start.sh
 # Test files and data
 data/test_files/
 *.txt
