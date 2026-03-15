@@ -47,8 +47,8 @@ def main():
     # Пытаемся найти логотип
     import os
     logo_paths = [
-        'data/test_files/Лого.jpg',  # Логотип в папке test_files
-        'Лого.jpg',  # Основной логотип в корне проекта
+        'static/images/Лого.jpg',  # Основной логотип (в репозитории)
+        'Лого.jpg',
         'static/images/logo.jpg',
         'logo.jpg'
     ]
