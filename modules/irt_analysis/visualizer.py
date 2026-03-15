@@ -1,0 +1,181 @@
+"""
+Модуль визуализации для IRT анализа
+Отвечает за отображение IRT анализа и анализа способностей студентов
+"""
+
+import streamlit as st
+from modules.irt_analysis.person_item_map import create_person_item_map, create_irt_summary_stats, create_difficulty_by_type_boxplot
+from modules.expert_system.expert_system import generate_expert_analysis
+
+
+def display_irt_analysis(questions):
+    """Отображение IRT анализа с Person-Item Map"""
+    questions = [q for q in questions if not q.get('is_main_question', False)]
+    
+    # Создаем Person-Item Map
+    try:
+        person_item_fig = create_person_item_map(questions)
+        st.plotly_chart(person_item_fig, use_container_width=True)
+        
+        # Добавляем описание
+        st.info("""
+        **Person-Item Map** показывает соответствие между способностями студентов и сложностью вопросов:
+        - **Левая сторона**: распределение способностей студентов
+        - **Правая сторона**: сложность вопросов
+        - **Идеальное соответствие**: когда распределения перекрываются
+        """)
+        
+        # Добавляем справку о шкале способностей и формуле логита
+        with st.expander("📖 Справка: Как вычисляется шкала способностей от -4 до +4"):
+            st.markdown("""
+            ### Шкала способностей в IRT анализе
+            
+            Способности студентов измеряются по **логит-шкале** от **-4 до +4**, где:
+            - **-4 до 0**: низкие способности (студенты с трудностями в освоении материала)
+            - **0**: средний уровень способностей
+            - **0 до +4**: высокие способности (студенты с отличным пониманием материала)
+            
+            ### Формула преобразования в логит-шкалу
+            
+            Способность студента (θ, тета) вычисляется через **логит-преобразование** вероятности правильного ответа:
+            
+            $$
+            \\theta = \\ln\\left(\\frac{p}{1-p}\\right)
+            $$
+            
+            где:
+            - **θ (тета)** — способность студента в логит-шкале (от -4 до +4)
+            - **p** — вероятность правильного ответа студента (от 0 до 1)
+            - **ln** — натуральный логарифм
+            
+            ### Как это работает на практике:
+            
+            1. **Вычисление вероятности (p)**: 
+               - Если студент правильно ответил на 50% вопросов → p = 0.5
+               - Если студент правильно ответил на 90% вопросов → p = 0.9
+               - Если студент правильно ответил на 10% вопросов → p = 0.1
+            
+            2. **Преобразование в логит**:
+               - p = 0.5 → θ = ln(0.5/0.5) = ln(1) = **0** (средние способности)
+               - p = 0.9 → θ = ln(0.9/0.1) = ln(9) ≈ **+2.2** (высокие способности)
+               - p = 0.1 → θ = ln(0.1/0.9) = ln(0.111) ≈ **-2.2** (низкие способности)
+            
+            3. **Ограничение шкалы**: 
+               - Значения ограничиваются диапазоном **-4 до +4** для удобства интерпретации
+               - Это соответствует вероятностям от ~1.8% (θ = -4) до ~98.2% (θ = +4)
+            
+            ### Почему используется логит-шкала?
+            
+            - **Симметричность**: одинаковые изменения в логитах соответствуют одинаковым изменениям в вероятностях
+            - **Неограниченность**: логит может принимать любые значения, что удобно для статистических моделей
+            - **Интерпретируемость**: легко сравнивать способности разных студентов и сложность разных вопросов
+            
+            ### Связь с Person-Item Map
+            
+            На графике Person-Item Map:
+            - **Левая сторона** показывает распределение способностей студентов (θ)
+            - **Правая сторона** показывает сложность вопросов (также в логит-шкале)
+            - Когда способности студентов совпадают со сложностью вопросов, студенты имеют ~50% шанс правильно ответить
+            """)
+        
+    except Exception as e:
+        st.error(f"Ошибка при создании Person-Item Map: {e}")
+    
+    # Создаем статистику
+    try:
+        stats = create_irt_summary_stats(questions)
+        if stats:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Всего вопросов", stats['total_questions'])
+                st.metric("Средняя сложность", f"{stats['difficulty_mean']:.1f}%")
+            
+            with col2:
+                easy_pct = (stats['easy_questions'] / stats['total_questions']) * 100 if stats['total_questions'] > 0 else 0
+                medium_pct = (stats['medium_questions'] / stats['total_questions']) * 100 if stats['total_questions'] > 0 else 0
+                st.metric("Легкие вопросы", f"{stats['easy_questions']} ({easy_pct:.1f}%)")
+                st.metric("Средние вопросы", f"{stats['medium_questions']} ({medium_pct:.1f}%)")
+            
+            with col3:
+                hard_pct = (stats['hard_questions'] / stats['total_questions']) * 100 if stats['total_questions'] > 0 else 0
+                st.metric("Сложные вопросы", f"{stats['hard_questions']} ({hard_pct:.1f}%)")
+                st.metric("Средняя дискриминация", f"{stats['discrimination_mean']:.2f}")
+                
+    except Exception as e:
+        st.error(f"Ошибка при создании статистики: {e}")
+    
+    # Создаем boxplot распределения сложности по типам вопросов
+    try:
+        boxplot_fig = create_difficulty_by_type_boxplot(questions)
+        if boxplot_fig.data:
+            st.subheader("📊 Распределение сложности по типам вопросов")
+            st.plotly_chart(boxplot_fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Ошибка при создании boxplot: {e}")
+    
+    # Добавляем анализ способностей студентов
+    display_student_analysis(questions)
+
+
+def display_student_analysis(questions):
+    """Отображение анализа способностей студентов"""
+    
+    st.subheader("👥 Анализ способностей студентов")
+    
+    try:
+        # Генерируем экспертный анализ для получения данных о студентах
+        expert_analysis = generate_expert_analysis(questions)
+        
+        if not expert_analysis:
+            st.warning("Не удалось сгенерировать анализ способностей студентов")
+            return
+        
+        # Анализ студентов
+        student_analysis = expert_analysis.get('student_analysis', {})
+        if student_analysis:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Студентов с низкими способностями", 
+                    f"{student_analysis.get('low_ability_count', 0)} ({student_analysis.get('low_ability_percent', 0):.1f}%)",
+                    help="Способности ниже среднего минус одно стандартное отклонение"
+                )
+            
+            with col2:
+                st.metric(
+                    "Студентов со средними способностями", 
+                    f"{student_analysis.get('medium_ability_count', 0)} ({student_analysis.get('medium_ability_percent', 0):.1f}%)",
+                    help="Способности в пределах одного стандартного отклонения от среднего"
+                )
+            
+            with col3:
+                st.metric(
+                    "Студентов с высокими способностями", 
+                    f"{student_analysis.get('high_ability_count', 0)} ({student_analysis.get('high_ability_percent', 0):.1f}%)",
+                    help="Способности выше среднего плюс одно стандартное отклонение"
+                )
+            
+            # Тип распределения с объяснением
+            distribution_type = student_analysis.get('distribution_type', 'неизвестно')
+            total_students = student_analysis.get('total_students', 0)
+            st.info(f"**Тип распределения способностей:** {distribution_type}")
+            # Добавляем объяснение для преподавателей
+            st.markdown(""" 
+            **Типы распределения:**
+            - **Нормальное**: большинство студентов имеют средние способности
+            - **Смещенное влево**: много слабых студентов, нужна дополнительная поддержка
+            - **Смещенное вправо**: много сильных студентов, можно усложнить материал    
+            """)
+            # Важное пояснение о симуляции
+            st.warning(f"""
+            **⚠️ Важно:** Данный анализ использует **симуляцию распределения способностей студентов** на основе данных о всех попытках студентов из всех учебных групп, 
+            прошедших тест (≈{total_students} попыток). Такая симуляция необходима для получения общей картины проводимого тестирования.
+            """)
+            
+        else:
+            st.warning("Не удалось получить данные о способностях студентов")
+            
+    except Exception as e:
+        st.error(f"Ошибка при анализе способностей студентов: {e}")
