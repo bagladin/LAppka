@@ -50,6 +50,37 @@ LAppka/
 4. Категоризация → L/M/H, O/Z, «на переработку»
 5. KBTB, рекомендации, визуализация
 
+## Диаграмма компонентов
+
+```mermaid
+flowchart LR
+    U[Пользователь] --> A[app_new.py / Streamlit UI]
+    A --> Q[Модуль 1: question_analysis]
+    A --> I[Модуль 2: irt_analysis]
+    A --> E[Модуль 3: expert_system]
+    A --> C[Модуль 4: categorization]
+
+    Q --> B[base: data_loader + html_parser + data_parser]
+    C --> MP[moodle_parser]
+    C --> CAT[categorizer]
+    E --> K[KBTB + overlap]
+
+    B --> S[(st.session_state)]
+    Q --> S
+    I --> S
+    E --> S
+    C --> S
+```
+
+## Контракты обмена данными
+
+| Модуль | Вход | Выход |
+|--------|------|-------|
+| `question_analysis` | HTML-выгрузка Moodle | `questions_data`, `answers_data` в `session_state` |
+| `irt_analysis` | `questions_data` | Person-Item Map, overlap-метрики |
+| `expert_system` | `questions_data` | KBTB, рекомендации, штрафы |
+| `categorization` | GIFT + `questions_data` | Категории 1.1/1.2/2.1/2.2/3 и экспорт GIFT |
+
 ## Добавление модуля
 
 1. Создать `modules/<name>/` с `__init__.py`, `module.py`

@@ -27,12 +27,14 @@ def compute_kbtb(
     target_type: Dict[str, float],
     target_level: Dict[str, float],
     min_questions: int = 0,
+    weights: Dict[str, float] = None,
 ) -> Dict[str, Any]:
     """
     Коэффициент сбалансированности тестовой базы (KBTB).
     target_type: {'O': 40, 'Z': 60} в процентах, сумма 100
     target_level: {'L': 30, 'M': 50, 'H': 20} в процентах, сумма 100
     min_questions: минимальное число вопросов (0 = не учитывать)
+    weights: словарь весов {'type': 0.3, 'level': 0.3, 'rework': 0.2, 'count': 0.2}
     """
     # Нормализуем целевые доли в доли 0…1
     tO = (target_type.get('O', 40) or 40) / 100.0
@@ -117,7 +119,17 @@ def compute_kbtb(
     else:
         P_count = 0.0 if n >= min_questions else 1.0 - n / min_questions
 
-    w1, w2, w3, w4 = 0.3, 0.3, 0.2, 0.2
+    if weights is None:
+        weights = {}
+    w1 = max(0.0, _safe_float(weights.get('type', 0.3), 0.3))
+    w2 = max(0.0, _safe_float(weights.get('level', 0.3), 0.3))
+    w3 = max(0.0, _safe_float(weights.get('rework', 0.2), 0.2))
+    w4 = max(0.0, _safe_float(weights.get('count', 0.2), 0.2))
+    w_sum = w1 + w2 + w3 + w4
+    if w_sum > 0:
+        w1, w2, w3, w4 = w1 / w_sum, w2 / w_sum, w3 / w_sum, w4 / w_sum
+    else:
+        w1, w2, w3, w4 = 0.3, 0.3, 0.2, 0.2
     KBTB = 1.0 - w1 * D_type - w2 * D_level - w3 * P_rework - w4 * P_count
     KBTB = max(0.0, min(1.0, KBTB))
 
@@ -145,6 +157,7 @@ def compute_kbtb(
         'R': R,
         'n': n,
         'n_rework': len(rework_idx),
+        'weights': {'type': w1, 'level': w2, 'rework': w3, 'count': w4},
     }
 
 

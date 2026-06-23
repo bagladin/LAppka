@@ -289,7 +289,8 @@ def calculate_text_similarity(text1: str, text2: str) -> float:
 def categorize_questions(
     moodle_questions: List[Dict[str, Any]],
     analyzed_questions: List[Dict[str, Any]],
-    easy_threshold: float = 70.0
+    easy_threshold: float = 70.0,
+    similarity_threshold: float = 0.9,
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], Set[str], List[str], Dict[str, List[str]]]:
     """
     Категоризирует вопросы по правилам:
@@ -309,6 +310,7 @@ def categorize_questions(
     Параметры:
     - moodle_questions: вопросы из Moodle файла
     - analyzed_questions: вопросы с анализом (из модуля 1)
+    - similarity_threshold: порог схожести текста для сопоставления (0.0–1.0)
     
     Возвращает:
     - кортеж (словарь {категория: [вопросы]}, множество названий самых легких вопросов, список несопоставленных вопросов, словарь информации о дубликатах, список информации о сопоставлениях для отладки)
@@ -338,7 +340,7 @@ def categorize_questions(
                 analyzed_question_text = aq.get('title', '').strip()
                 if analyzed_question_text:
                     similarity = calculate_text_similarity(moodle_question_text, analyzed_question_text)
-                    if similarity >= 0.9 and similarity > best_similarity:
+                    if similarity >= similarity_threshold and similarity > best_similarity:
                         matched = aq
                         best_similarity = similarity
         

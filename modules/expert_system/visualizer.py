@@ -180,10 +180,36 @@ def _render_kbtb_block(questions):
                                     help="Остаток для т: до " + str(max_h) + "%")
         st.session_state['kbtb_lmh'] = {'L': target_l, 'M': target_m, 'H': target_h}
 
+        st.markdown("**Веса компонентов KBTB (сумма не более 1):**")
+        w1c, w2c, w3c, w4c = st.columns(4)
+        prev_w = st.session_state.get('kbtb_weights', {'type': 0.3, 'level': 0.3, 'rework': 0.2, 'count': 0.2})
+        with w1c:
+            w_type_default = min(1.0, max(0.0, float(prev_w.get('type', 0.3))))
+            w_type = st.number_input("w тип", min_value=0.0, max_value=1.0, value=w_type_default, step=0.05, key="kbtb_w_type")
+        with w2c:
+            max_w_level = max(0.0, 1.0 - w_type)
+            w_level_default = min(max_w_level, max(0.0, float(prev_w.get('level', 0.3))))
+            w_level = st.number_input("w уровень", min_value=0.0, max_value=max_w_level, value=w_level_default, step=0.05, key="kbtb_w_level")
+        with w3c:
+            max_w_rework = max(0.0, 1.0 - w_type - w_level)
+            w_rework_default = min(max_w_rework, max(0.0, float(prev_w.get('rework', 0.2))))
+            w_rework = st.number_input("w дораб.", min_value=0.0, max_value=max_w_rework, value=w_rework_default, step=0.05, key="kbtb_w_rework")
+        with w4c:
+            max_w_count = max(0.0, 1.0 - w_type - w_level - w_rework)
+            w_count_default = min(max_w_count, max(0.0, float(prev_w.get('count', 0.2))))
+            w_count = st.number_input("w кол-во", min_value=0.0, max_value=max_w_count, value=w_count_default, step=0.05, key="kbtb_w_count")
+        st.session_state['kbtb_weights'] = {'type': w_type, 'level': w_level, 'rework': w_rework, 'count': w_count}
+        w_sum = w_type + w_level + w_rework + w_count
+        if w_sum > 1.000001:
+            st.error("Сумма весов не должна превышать 1. Уменьшите другой вес.")
+        else:
+            st.caption(f"Сумма весов: {w_sum:.2f} / 1.00")
+
     target_type = {'O': float(target_o), 'Z': float(100 - target_o)}
     target_level = {'L': float(target_l), 'M': float(target_m), 'H': float(target_h)}
+    weights = st.session_state.get('kbtb_weights', {'type': 0.3, 'level': 0.3, 'rework': 0.2, 'count': 0.2})
     st.session_state['kbtb_target_level'] = target_level
-    res = compute_kbtb(questions, target_type, target_level, min_questions=int(min_q))
+    res = compute_kbtb(questions, target_type, target_level, min_questions=int(min_q), weights=weights)
 
     kbtb = res['kbtb']
     interp = res['interpretation']
@@ -206,6 +232,11 @@ def _render_kbtb_block(questions):
         st.caption(f"−{p_count * 100:.1f}% из-за недостатка количества вопросов")
     if p_type <= 0.001 and p_level <= 0.001 and p_rework <= 0.001 and p_count <= 0.001:
         st.caption("Штрафы отсутствуют.")
+    ws = res.get('weights', {'type': 0.3, 'level': 0.3, 'rework': 0.2, 'count': 0.2})
+    st.caption(
+        "Нормализованные веса: "
+        f"тип={ws['type']:.2f}, уровень={ws['level']:.2f}, доработка={ws['rework']:.2f}, количество={ws['count']:.2f}"
+    )
 
     # График: целевые vs фактические (O, Z, L, M, H)
     cats = ['О (открытые)', 'З (закрытые)', 'л (лёгкие)', 'с (средние)', 'т (сложные)']
@@ -246,7 +277,7 @@ def _render_kbtb_block(questions):
         - $P_{\\text{переработка}} = 1 - e^{-3R}$ — штраф за вопросы на переработку
         - $P_{\\text{количество}} = \\begin{cases} 0 & \\text{если } n \\geq n_{\\text{мин}} \\\\ 1 - \\frac{n}{n_{\\text{мин}}} & \\text{иначе} \\end{cases}$ — штраф за недостаток вопросов
         
-        **Веса:** $w_1 = 0.3$, $w_2 = 0.3$, $w_3 = 0.2$, $w_4 = 0.2$
+        **Веса:** задаются пользователем в интерфейсе, затем нормализуются так, чтобы сумма была равна 1.
         
         **Обозначения:**
         - $a_О, a_З$ — фактические доли открытых/закрытых вопросов

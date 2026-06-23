@@ -14,7 +14,7 @@ def render():
     """Основная функция рендеринга модуля"""
     st.markdown("### 📂 Модуль 4: Категоризация")
     st.markdown("""
-    **Описание:** Автоматическая категоризация вопросов банка Moodle по сложности (индекс легкости) и типу ответа (открытый/закрытый). Сопоставление со статистикой выполняется по текстовой схожести; несопоставленные вопросы получают значения по умолчанию. Порог границы «лёгкие» (по умолчанию ≥70%) настраивается в диапазоне 65–75%.
+    **Описание:** Автоматическая категоризация вопросов банка Moodle по сложности (индекс легкости) и типу ответа (открытый/закрытый). Сопоставление со статистикой выполняется по текстовой схожести; несопоставленные вопросы получают значения по умолчанию. В интерфейсе настраиваются порог границы «лёгкие» (по умолчанию ≥70%) и порог сопоставления SequenceMatcher.
     
     **Структура категорий:**
     - **Категория 1**: Легкие вопросы (>= 70%)
@@ -68,7 +68,7 @@ def render():
             # Получаем проанализированные вопросы из session_state
             analyzed_questions = st.session_state['questions_data']
             
-            # Описание категорий слева, настройка границы справа
+            # Описание категорий слева, настройки справа
             desc_col, slider_col = st.columns([1, 1])
             with desc_col:
                 st.markdown("""
@@ -89,10 +89,23 @@ def render():
                     step=1,
                     help="Сдвиг влево — больше в «лёгкие»; вправо — меньше. Диапазон 65–75%."
                 )
+                similarity_threshold = st.slider(
+                    "Порог сопоставления вопросов (SequenceMatcher)",
+                    min_value=0.80,
+                    max_value=0.99,
+                    value=0.90,
+                    step=0.01,
+                    help="Чем выше порог, тем строже сопоставление HTML ↔ GIFT."
+                )
 
             # Категоризируем вопросы
             with st.spinner("Категоризация вопросов..."):
-                categorized_questions, easiest_questions, unmatched_questions, duplicates_info, matching_info, low_attempts_questions = categorize_questions(moodle_questions, analyzed_questions, easy_threshold=easy_threshold)
+                categorized_questions, easiest_questions, unmatched_questions, duplicates_info, matching_info, low_attempts_questions = categorize_questions(
+                    moodle_questions,
+                    analyzed_questions,
+                    easy_threshold=easy_threshold,
+                    similarity_threshold=similarity_threshold,
+                )
             
             # Обработка несопоставленных вопросов (по умолчанию включаем их)
             unmatched_action = "Включить в категоризацию с значениями по умолчанию"

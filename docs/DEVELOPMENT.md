@@ -55,6 +55,13 @@ HTML-парсер (`modules/base/html_parser.py`) используется ав�
 from utils.helpers import safe_float, safe_int, get_difficulty_color, get_metric_class
 ```
 
+## Минимальная стратегия тестирования
+
+- **Smoke-check после правок:** запуск `streamlit run app_new.py` и проверка загрузки HTML/GIFT.
+- **Критические сценарии:** сопоставление вопросов, расчёт KBTB, экспорт GIFT.
+- **Регрессии парсинга:** проверять минимум один "хороший" и один "проблемный" экспорт HTML/GIFT.
+- **Рекомендация на следующий шаг:** добавить автоматический `pytest`-набор и CI workflow.
+
 ## Ресурсы
 
 - [Streamlit](https://docs.streamlit.io/)
