@@ -22,6 +22,42 @@ def _safe_float(x, default=0.0):
         return default
 
 
+def _identify_rework_indices(qs: List[Dict[str, Any]]) -> set:
+    """
+    Индексы вопросов «на переработку»:
+    - дискриминация < 0.3
+    - 10% самых легких (по difficulty %)
+    """
+    rework_idx = set()
+    for i, q in enumerate(qs):
+        d = _safe_float(q.get('discrimination'))
+        if d < 0.3:
+            rework_idx.add(i)
+
+    diff_list = [(_safe_float(q.get('difficulty')), i) for i, q in enumerate(qs)]
+    diff_list.sort(key=lambda x: (-x[0], x[1]))
+    n = len(qs)
+    n_top = max(1, int(math.ceil(0.1 * n))) if n > 0 else 0
+    for j in range(min(n_top, len(diff_list))):
+        rework_idx.add(diff_list[j][1])
+    return rework_idx
+
+
+def get_rework_question_ids(questions: List[Dict[str, Any]]) -> set:
+    """
+    Возвращает множество display_id/id вопросов, отнесенных к переработке.
+    Используется для подсветки в UI.
+    """
+    qs = [q for q in questions if not q.get('is_main_question', False)]
+    idx = _identify_rework_indices(qs)
+    result = set()
+    for i, q in enumerate(qs):
+        if i in idx:
+            qid = q.get('display_id') or q.get('id', '')
+            result.add(str(qid))
+    return result
+
+
 def compute_kbtb(
     questions: List[Dict[str, Any]],
     target_type: Dict[str, float],
@@ -74,24 +110,30 @@ def compute_kbtb(
             'target_level': {'L': tL, 'M': tM, 'H': tH},
         }
 
-    # R: «на переработку» — дискриминация < 0.3 или 10% самых лёгких (по difficulty %)
-    rework_idx = set()
-    for i, q in enumerate(qs):
-        d = _safe_float(q.get('discrimination'))
-        if d < 0.3:
-            rework_idx.add(i)
-    # 10% самых лёгких = наибольшие difficulty
-    diff_list = [(_safe_float(q.get('difficulty')), i) for i, q in enumerate(qs)]
-    diff_list.sort(key=lambda x: (-x[0], x[1]))
-    n_top = max(1, int(math.ceil(0.1 * n)))
-    for j in range(min(n_top, len(diff_list))):
-        rework_idx.add(diff_list[j][1])
+    # R: «на переработку»
+    rework_idx = _identify_rework_indices(qs)
 
     R = len(rework_idx) / n
     non_r = [q for i, q in enumerate(qs) if i not in rework_idx]
     nn = len(non_r)
 
     # Фактические доли по типам и уровням (на non-R), в 0…1
+    clean_level_counts = {'L': 0, 'M': 0, 'H': 0}
+    rework_level_counts = {'L': 0, 'M': 0, 'H': 0}
+    clean_type_counts = {'O': 0, 'Z': 0}
+    rework_type_counts = {'O': 0, 'Z': 0}
+
+    for i, q in enumerate(qs):
+        d = _safe_float(q.get('difficulty'))
+        lvl = 'L' if d >= 70 else ('M' if d >= 40 else 'H')
+        typ = 'O' if is_open_question_type(q.get('type', '')) else 'Z'
+        if i in rework_idx:
+            rework_level_counts[lvl] += 1
+            rework_type_counts[typ] += 1
+        else:
+            clean_level_counts[lvl] += 1
+            clean_type_counts[typ] += 1
+
     if nn == 0:
         aO, aZ = 0.5, 0.5
         aL, aM, aH = tL, tM, tH  # нет данных — не штрафуем по уровню
@@ -157,6 +199,11 @@ def compute_kbtb(
         'R': R,
         'n': n,
         'n_rework': len(rework_idx),
+        'n_clean': nn,
+        'clean_level_counts': clean_level_counts,
+        'rework_level_counts': rework_level_counts,
+        'clean_type_counts': clean_type_counts,
+        'rework_type_counts': rework_type_counts,
         'weights': {'type': w1, 'level': w2, 'rework': w3, 'count': w4},
     }
 
@@ -326,7 +373,7 @@ def analyze_ability_difficulty_match(student_abilities: List[float], question_di
     for diff in question_difficulties:
         if 0 < diff < 100:
             p = np.clip(diff / 100, 0.01, 0.99)
-            logit = np.log(p / (1 - p))
+            logit = np.log((1 - p) / p)
             question_logits.append(logit)
     
     if not question_logits:
@@ -367,11 +414,11 @@ def classify_distribution(abilities: np.ndarray) -> str:
     skewness = calculate_skewness(abilities)
     
     if abs(skewness) < 0.5:
-        return "нормальное"
+        return "симметричное (без выраженной асимметрии)"
     elif skewness > 0.5:
-        return "смещенное влево (много слабых студентов)"
+        return "асимметрия влево (преобладают более низкие уровни)"
     else:
-        return "смещенное вправо (много сильных студентов)"
+        return "асимметрия вправо (преобладают более высокие уровни)"
 
 
 def calculate_skewness(data: np.ndarray) -> float:
@@ -492,7 +539,7 @@ def generate_expert_analysis(questions: List[Dict[str, Any]], student_abilities:
             logit_difficulties = []
             for diff in question_difficulties:
                 p = np.clip(diff / 100, 0.01, 0.99)
-                logit = np.log(p / (1 - p))
+                logit = np.log((1 - p) / p)
                 logit_difficulties.append(logit)
             
             # Генерируем нормальное распределение на основе сложности

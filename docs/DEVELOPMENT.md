@@ -19,7 +19,7 @@ streamlit run app_new.py
 | Модуль | Путь | Основные файлы |
 |--------|------|----------------|
 | Анализ вопросов | `modules/question_analysis/` | module.py, visualizer.py, charts.py |
-| IRT | `modules/irt_analysis/` | module.py, person_item_map.py, visualizer.py |
+| Сопоставление распределений | `modules/irt_analysis/` | module.py, person_item_map.py, visualizer.py |
 | Экспертная система | `modules/expert_system/` | module.py, expert_system.py, visualizer.py |
 | Категоризация | `modules/categorization/` | module.py, categorizer.py, moodle_parser.py, moodle_generator.py, visualizer.py |
 
@@ -61,6 +61,11 @@ from utils.helpers import safe_float, safe_int, get_difficulty_color, get_metric
 - **Критические сценарии:** сопоставление вопросов, расчёт KBTB, экспорт GIFT.
 - **Регрессии парсинга:** проверять минимум один "хороший" и один "проблемный" экспорт HTML/GIFT.
 - **Рекомендация на следующий шаг:** добавить автоматический `pytest`-набор и CI workflow.
+
+## Границы текущей реализации
+
+- Состояние между действиями пользователя хранится в `st.session_state`; это штатная модель Streamlit для прототипов.
+- Для высокой многопользовательской нагрузки рекомендуется серверное профилирование памяти и вынос тяжёлых вычислений в отдельный сервисный слой.
 
 ## Ресурсы
 

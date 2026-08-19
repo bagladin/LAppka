@@ -5,8 +5,140 @@
 
 import streamlit as st
 import plotly.graph_objects as go
+import pandas as pd
 
 from modules.expert_system.expert_system import generate_expert_analysis, compute_kbtb
+from modules.irt_analysis.person_item_map import (
+    create_distribution_alignment_metrics,
+    build_deficit_recommendation_plan,
+)
+
+
+def _build_recommendation_alignment_table(questions, kbtb_res, target_level):
+    """Согласование структурных и распределенческих рекомендаций."""
+    n = int(kbtb_res.get('n', 0))
+    if n <= 0:
+        return None
+
+    # 1) Структурный план после выбытия вопросов "на переработку".
+    # Целевая мощность сохраняется по исходному n, а фактическая база берется по cleaned-bank.
+    clean_level_counts = kbtb_res.get('clean_level_counts', {'L': 0, 'M': 0, 'H': 0})
+    rework_level_counts = kbtb_res.get('rework_level_counts', {'L': 0, 'M': 0, 'H': 0})
+    target_frac = {
+        'L': max(0.0, float(target_level.get('L', 30.0)) / 100.0),
+        'M': max(0.0, float(target_level.get('M', 50.0)) / 100.0),
+        'H': max(0.0, float(target_level.get('H', 20.0)) / 100.0),
+    }
+    struct_plan = {}
+    for lvl in ['L', 'M', 'H']:
+        target_count = n * target_frac[lvl]
+        actual_count = float(clean_level_counts.get(lvl, 0))
+        struct_plan[lvl] = int(max(0, round(target_count - actual_count)))
+
+    struct_total = sum(struct_plan.values())
+
+    # 2) План по дефицитным зонам (распределенческий, идентичен модулю 2).
+    student_abilities = st.session_state.get("student_abilities_logit") or None
+    apply_alignment_shift = bool(st.session_state.get("apply_alignment_shift", True))
+    dist_metrics = create_distribution_alignment_metrics(
+        questions,
+        student_ability_distribution=student_abilities,
+        apply_alignment_shift=apply_alignment_shift,
+    )
+    has_student_data = bool(dist_metrics.get('has_student_data', False))
+    kstr = float(dist_metrics.get('kstr', 0.0))
+    if has_student_data:
+        deficit_plan = build_deficit_recommendation_plan(
+            total_questions=n,
+            kstr=kstr,
+            deficit_zones=dist_metrics.get('deficit_zones', []) or [],
+            total_override=struct_total,
+        )
+        dist_plan = deficit_plan.get('counts', {'L': 0, 'M': 0, 'H': 0})
+        dist_total = int(deficit_plan.get('total', 0))
+    else:
+        dist_plan = {'L': 0, 'M': 0, 'H': 0}
+        dist_total = 0
+
+    if dist_total <= 0 and struct_total <= 0:
+        return None
+
+    if has_student_data:
+        # 3) Коэффициент согласованности рекомендаций C.
+        num = sum(abs(struct_plan[l] - dist_plan[l]) for l in ['L', 'M', 'H'])
+        den = sum(struct_plan[l] + dist_plan[l] for l in ['L', 'M', 'H'])
+        c_agree = 1.0 if den == 0 else max(0.0, min(1.0, 1.0 - (num / den)))
+
+        # 4) Адаптивный вес структурного плана α(C):
+        # при низком C приоритет структуры выше, при высоком C — баланс ближе к данным зон.
+        alpha = 0.35 + 0.45 * (1.0 - c_agree)
+        alpha = max(0.35, min(0.80, alpha))
+
+        # 5) Итоговый согласованный план (структура + распределение).
+        final_plan = {}
+        for lvl in ['L', 'M', 'H']:
+            final_plan[lvl] = int(round(alpha * struct_plan[lvl] + (1.0 - alpha) * dist_plan[lvl]))
+    else:
+        c_agree = None
+        alpha = 1.0
+        final_plan = dict(struct_plan)
+
+    target_type = st.session_state.get("kbtb_target_type", {"O": 40.0, "Z": 60.0})
+    open_ratio = max(0.0, min(1.0, float(target_type.get("O", 40.0)) / 100.0))
+
+    def split_open_closed(total_count: int):
+        if total_count <= 0:
+            return 0, 0
+        open_count = int(round(total_count * open_ratio))
+        open_count = max(0, min(total_count, open_count))
+        closed_count = total_count - open_count
+        return open_count, closed_count
+
+    l_open, l_closed = split_open_closed(final_plan['L'])
+    m_open, m_closed = split_open_closed(final_plan['M'])
+    h_open, h_closed = split_open_closed(final_plan['H'])
+
+    df = pd.DataFrame([
+        {
+            'Уровень сложности': 'Легкие (L)',
+            'На переработку (текущие)': int(rework_level_counts.get('L', 0)),
+            'План по структуре КБТБ': struct_plan['L'],
+            'План по дефицитным зонам': dist_plan['L'],
+            'Добавить (согласованный итог)': final_plan['L'],
+            'Открытые (итог)': l_open,
+            'Закрытые (итог)': l_closed,
+        },
+        {
+            'Уровень сложности': 'Средние (M)',
+            'На переработку (текущие)': int(rework_level_counts.get('M', 0)),
+            'План по структуре КБТБ': struct_plan['M'],
+            'План по дефицитным зонам': dist_plan['M'],
+            'Добавить (согласованный итог)': final_plan['M'],
+            'Открытые (итог)': m_open,
+            'Закрытые (итог)': m_closed,
+        },
+        {
+            'Уровень сложности': 'Сложные (H)',
+            'На переработку (текущие)': int(rework_level_counts.get('H', 0)),
+            'План по структуре КБТБ': struct_plan['H'],
+            'План по дефицитным зонам': dist_plan['H'],
+            'Добавить (согласованный итог)': final_plan['H'],
+            'Открытые (итог)': h_open,
+            'Закрытые (итог)': h_closed,
+        },
+    ])
+    return {
+        'table': df,
+        'agreement_c': c_agree,
+        'kstr': kstr,
+        'alpha': alpha,
+        'has_student_data': has_student_data,
+        'totals': {
+            'struct': struct_total,
+            'dist': dist_total,
+            'final': sum(final_plan.values()),
+        },
+    }
 
 
 def display_expert_system(questions):
@@ -23,23 +155,50 @@ def display_expert_system(questions):
         general_recommendations = expert_analysis.get('general_recommendations', [])
         target_level = st.session_state.get('kbtb_target_level') or {'L': 30, 'M': 50, 'H': 20}
         question_analysis = expert_analysis.get('question_analysis', {})
-        n = question_analysis.get('total_questions', 0)
-        easy_a, medium_a, hard_a = (
-            question_analysis.get('easy_questions', 0),
-            question_analysis.get('medium_questions', 0),
-            question_analysis.get('hard_questions', 0),
+        # Согласуем верхние текстовые рекомендации с логикой cleaned-bank.
+        target_o = float(st.session_state.get('kbtb_o', 40))
+        target_type = {'O': target_o, 'Z': float(100 - target_o)}
+        weights_for_rec = st.session_state.get('kbtb_weights', {'type': 0.3, 'level': 0.3, 'rework': 0.2, 'count': 0.2})
+        kbtb_for_rec = compute_kbtb(
+            questions,
+            target_type=target_type,
+            target_level=target_level,
+            min_questions=int(st.session_state.get('kbtb_min', 0)),
+            weights=weights_for_rec,
         )
+        n = int(kbtb_for_rec.get('n', 0))
+        clean_levels = kbtb_for_rec.get('clean_level_counts', {'L': 0, 'M': 0, 'H': 0})
+        target_h_count = int(round(n * float(target_level.get('H', 20)) / 100.0))
+        target_l_count = int(round(n * float(target_level.get('L', 30)) / 100.0))
+        add_hard = max(0, target_h_count - int(clean_levels.get('H', 0)))
+        add_easy = max(0, target_l_count - int(clean_levels.get('L', 0)))
         if general_recommendations:
             st.markdown("### 💡 Рекомендации экспертной системы")
             for rec in general_recommendations:
                 if "Слишком много легких" in rec:
-                    add_hard = max(0, round(n * target_level.get('H', 20) / 100) - hard_a)
                     if add_hard > 0:
-                        rec = f"{rec} (ориентировочно +{add_hard} сложных)"
+                        rec = (
+                            "Структура банка смещена к лёгким вопросам; "
+                            f"по целевой структуре дефицит сложных ≈ {add_hard}. "
+                            "Точный объём смотрите в согласованном плане ниже."
+                        )
+                    else:
+                        rec = (
+                            "Структура банка смещена к лёгким вопросам; "
+                            "уточнение объёма пополнения смотрите в согласованном плане ниже."
+                        )
                 elif "Слишком много сложных" in rec:
-                    add_easy = max(0, round(n * target_level.get('L', 30) / 100) - easy_a)
                     if add_easy > 0:
-                        rec = f"{rec} (ориентировочно +{add_easy} лёгких)"
+                        rec = (
+                            "Структура банка смещена к сложным вопросам; "
+                            f"по целевой структуре дефицит лёгких ≈ {add_easy}. "
+                            "Точный объём смотрите в согласованном плане ниже."
+                        )
+                    else:
+                        rec = (
+                            "Структура банка смещена к сложным вопросам; "
+                            "уточнение объёма пополнения смотрите в согласованном плане ниже."
+                        )
                 if "критически" in rec.lower() or "критическое" in rec.lower():
                     st.error(f"🚨 **Критично:** {rec}")
                 elif "рекомендуется" in rec.lower() or "следует" in rec.lower():
@@ -47,92 +206,6 @@ def display_expert_system(questions):
                 else:
                     st.info(f"ℹ️ **Информация:** {rec}")
             st.markdown("---")
-        
-        # Анализ соответствия
-        match_analysis = expert_analysis.get('match_analysis', {})
-        if match_analysis:
-            st.markdown("### 🎯 Анализ соответствия способностей и сложности")
-            
-            overlap_pct = match_analysis.get('overlap_percentage', 0)
-            match_quality = match_analysis.get('match_quality', 'неизвестно')
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.metric(
-                    "Перекрытие распределений", 
-                    f"{overlap_pct:.1f}%",
-                    help="Процент перекрытия между способностями студентов и сложностью вопросов"
-                )
-            
-            with col2:
-                quality_color = {
-                    'отличное': '🟢',
-                    'хорошее': '🟡', 
-                    'удовлетворительное': '🟠',
-                    'плохое': '🔴'
-                }.get(match_quality, '⚪')
-                
-                st.metric(
-                    "Качество соответствия", 
-                    f"{quality_color} {match_quality}",
-                    help="Оценка соответствия между способностями и сложностью"
-                )
-            
-            # Рекомендации по соответствию
-            match_recommendations = match_analysis.get('recommendations', [])
-            if match_recommendations:
-                st.markdown("**Рекомендации по соответствию:**")
-                for rec in match_recommendations:
-                    st.write(f"• {rec}")
-            
-            # Справка с формулой коэффициента покрытия - ПЕРЕД объяснением
-            with st.expander("📖 Справка: Формула коэффициента перекрытия"):
-                st.markdown("""
-                ### Коэффициент перекрытия (Overlap Index)
-                
-                Доля диапазона способностей студентов, пересекающаяся с диапазоном сложности вопросов теста (в логит-шкале).
-                
-                $$
-                \\text{Перекрытие} = \\frac{L_{\\text{пересечение}}}{L_{\\text{общий}}} \\cdot 100\\%
-                $$
-                
-                где:
-                
-                - $L_{\\text{пересечение}}$ — длина пересечения диапазонов сложности вопросов и способностей студентов  
-                - $L_{\\text{общий}}$ — общий диапазон, охватывающий и студентов, и вопросы  
-                
-                **Пересечение вычисляется как:**
-                
-                $$
-                L_{\\text{пересечение}} = \\max(0, \\min(\\theta_{\\max}, b_{\\max}) - \\max(\\theta_{\\min}, b_{\\min}))
-                $$
-                
-                **Общий диапазон:**
-                
-                $$
-                L_{\\text{общий}} = \\max(\\theta_{\\max}, b_{\\max}) - \\min(\\theta_{\\min}, b_{\\min})
-                $$
-                
-                где:
-                - $\\theta_{\\min}, \\theta_{\\max}$ — минимальная и максимальная способность студентов  
-                - $b_{\\min}, b_{\\max}$ — минимальная и максимальная сложность вопросов
-                """)
-            
-            # Добавляем объяснение для преподавателей
-            st.markdown("""
-            **📚 Объяснение для преподавателей:**
-            
-            **Соответствие способностей и сложности** показывает, насколько хорошо вопросы подходят для ваших студентов.
-            - **Высокое перекрытие (>70%)**: вопросы хорошо подходят для студентов
-            - **Низкое перекрытие (<30%)**: вопросы слишком легкие или сложные для студентов
-            
-            **Что означает качество соответствия:**
-            - **Отличное**: тест идеально подходит для студентов
-            - **Хорошее**: тест в целом подходит, есть небольшие проблемы
-            - **Удовлетворительное**: тест подходит, но нужны улучшения
-            - **Плохое**: тест не подходит для студентов, требуется серьезная переработка
-            """)
         
         # KBTB
         _render_kbtb_block(questions)
@@ -238,27 +311,7 @@ def _render_kbtb_block(questions):
         f"тип={ws['type']:.2f}, уровень={ws['level']:.2f}, доработка={ws['rework']:.2f}, количество={ws['count']:.2f}"
     )
 
-    # График: целевые vs фактические (O, Z, L, M, H)
-    cats = ['О (открытые)', 'З (закрытые)', 'л (лёгкие)', 'с (средние)', 'т (сложные)']
-    target_pct = [
-        res['target_type']['O'] * 100, res['target_type']['Z'] * 100,
-        res['target_level']['L'] * 100, res['target_level']['M'] * 100, res['target_level']['H'] * 100
-    ]
-    actual_pct = [
-        res['actual_type']['O'] * 100, res['actual_type']['Z'] * 100,
-        res['actual_level']['L'] * 100, res['actual_level']['M'] * 100, res['actual_level']['H'] * 100
-    ]
-    fig = go.Figure()
-    fig.add_trace(go.Bar(name='Целевая доля, %', x=cats, y=target_pct, marker_color='#3498db'))
-    fig.add_trace(go.Bar(name='Фактическая доля, %', x=cats, y=actual_pct, marker_color='#e74c3c'))
-    fig.update_layout(barmode='group', xaxis_tickangle=-30, height=320, margin=dict(t=20, b=80),
-                      legend=dict(orientation='h', yanchor='bottom', y=1.02),
-                      yaxis=dict(title='Доля, %', range=[0, 105]))
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.caption(f"Всего вопросов: {res['n']}, из них «на переработку»: {res['n_rework']} ({res['R']*100:.1f}%).")
-    
-    # Справка с формулой KBTB
+    # Справка с формулой KBTB (перед графиком структуры)
     with st.expander("📖 Справка: Формула KBTB"):
         st.markdown("""
         ### Коэффициент сбалансированности тестовой базы (KBTB)
@@ -290,5 +343,98 @@ def _render_kbtb_block(questions):
         
         **Интерпретация:** КБТБ ∈ [0, 1]; 1 — идеальная сбалансированность.
         """)
+
+    # График: целевые vs фактические (O, Z, L, M, H)
+    cats = ['О (открытые)', 'З (закрытые)', 'л (лёгкие)', 'с (средние)', 'т (сложные)']
+    target_pct = [
+        res['target_type']['O'] * 100, res['target_type']['Z'] * 100,
+        res['target_level']['L'] * 100, res['target_level']['M'] * 100, res['target_level']['H'] * 100
+    ]
+    actual_pct = [
+        res['actual_type']['O'] * 100, res['actual_type']['Z'] * 100,
+        res['actual_level']['L'] * 100, res['actual_level']['M'] * 100, res['actual_level']['H'] * 100
+    ]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(name='Целевая доля, %', x=cats, y=target_pct, marker_color='#3498db'))
+    fig.add_trace(go.Bar(name='Фактическая доля, %', x=cats, y=actual_pct, marker_color='#e74c3c'))
+    fig.update_layout(barmode='group', xaxis_tickangle=-30, height=320, margin=dict(t=20, b=80),
+                      legend=dict(orientation='h', yanchor='bottom', y=1.02),
+                      yaxis=dict(title='Доля, %', range=[0, 105]))
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.caption(f"Всего вопросов: {res['n']}, из них «на переработку»: {res['n_rework']} ({res['R']*100:.1f}%).")
+
+    aligned = _build_recommendation_alignment_table(questions, res, target_level)
+    if aligned is not None:
+        st.markdown("### 🧩 Согласованный план пополнения банка")
+        c = aligned['agreement_c']
+        has_student_data = bool(aligned.get('has_student_data', False))
+        c_label = (
+            ("высокая" if c >= 0.75 else ("средняя" if c >= 0.50 else "низкая"))
+            if c is not None else "недоступна"
+        )
+        st.table(aligned['table'])
+        t = aligned['totals']
+        n_rework = int(res.get('n_rework', 0))
+        st.caption(
+            f"Суммарно: на переработку={n_rework} / структура={t['struct']} / зоны={t['dist']} / добавить={t['final']} вопросов."
+        )
+        if not has_student_data:
+            st.info(
+                "Журнал оценок не загружен: зональная часть и коэффициент согласованности не рассчитываются, "
+                "показан структурный план КБТБ."
+            )
+        with st.expander("📘 Как формируется согласованный план пополнения", expanded=False):
+            st.markdown("""
+            Для согласования рекомендаций используются два независимых источника:
+            - **структурный план** (по целевой модели КБТБ),
+            - **зональный план** (по дефицитным зонам диаграммы соответствия распределений).
+
+            Обозначим уровни сложности как $u \\in \\{Л, С, Т\\}$:
+            - $n^{\\text{стр}}_u$ — число вопросов для уровня $u$ из структурного плана;
+            - $n^{\\text{деф}}_u$ — число вопросов для уровня $u$ из дефицитных зон;
+            - $n^{\\text{итог}}_u$ — итоговая согласованная рекомендация.
+
+            **1) Коэффициент согласованности рекомендаций**
+
+            $$
+            C = 1 - \\frac{\\sum\\limits_{u} \\left|n^{\\text{стр}}_u - n^{\\text{деф}}_u\\right|}
+            {\\sum\\limits_{u} \\left(n^{\\text{стр}}_u + n^{\\text{деф}}_u\\right)}
+            $$
+
+            Интерпретация:
+            - $C \\to 1$ — источники почти не конфликтуют;
+            - $C \\to 0$ — источники расходятся, требуется более консервативное объединение.
+
+            **2) Адаптивный вес структурного плана**
+
+            $$
+            \\alpha(C)=0.35+0.45(1-C), \\quad C\\in[0,1]
+            $$
+
+            где $\\alpha$ — доля структурного плана в итоговой формуле.
+            Следовательно, автоматически выполняется ограничение $\\alpha\\in[0.35,0.80]$:
+            при низком $C$ вес структуры выше, при высоком $C$ система больше доверяет данным дефицитных зон.
+
+            **3) Итоговое объединение по уровням**
+
+            $$
+            n^{\\text{итог}}_u = \\left\\lfloor \\alpha\\,n^{\\text{стр}}_u + (1-\\alpha)\\,n^{\\text{деф}}_u + \\frac{1}{2} \\right\\rfloor
+            $$
+
+            После этого итог по каждому уровню делится на открытые/закрытые вопросы
+            пропорционально целевой доле типов в КБТБ.
+            """)
+            if has_student_data and c is not None:
+                st.markdown(
+                    f"Текущие значения: согласованность **{c_label}** "
+                    f"($C={c:.3f}$), $K_{{сс}}={aligned['kstr']:.3f}$, "
+                    f"$\\alpha={aligned['alpha']:.1f}$."
+                )
+            else:
+                st.markdown(
+                    "Текущие значения: согласованность **недоступна**, "
+                    "так как отсутствуют данные журнала оценок; используется только структурная часть КБТБ."
+                )
     
     st.markdown("---")
